@@ -11,6 +11,8 @@ import time
 import json
 import subprocess
 import numpy
+import random
+import tempfile
 
 BATCH_SIZE = 4
 DEVICE = '/gpu:0'
@@ -174,18 +176,18 @@ def ffwd(data_in, paths_out, checkpoint_dir, device_t='/gpu:0', batch_size=4):
             _preds = sess.run(preds, feed_dict={img_placeholder:X})
             for j, path_out in enumerate(curr_batch_out):
                 save_img(path_out, _preds[j])
-                
+
         remaining_in = data_in[num_iters*batch_size:]
         remaining_out = paths_out[num_iters*batch_size:]
     if len(remaining_in) > 0:
-        ffwd(remaining_in, remaining_out, checkpoint_dir, 
+        ffwd(remaining_in, remaining_out, checkpoint_dir,
             device_t=device_t, batch_size=1)
 
 def ffwd_to_img(in_path, out_path, checkpoint_dir, device='/cpu:0'):
     paths_in, paths_out = [in_path], [out_path]
     ffwd(paths_in, paths_out, checkpoint_dir, batch_size=1, device_t=device)
 
-def ffwd_different_dimensions(in_path, out_path, checkpoint_dir, 
+def ffwd_different_dimensions(in_path, out_path, checkpoint_dir,
             device_t=DEVICE, batch_size=4):
     in_path_of_shape = defaultdict(list)
     out_path_of_shape = defaultdict(list)
@@ -197,7 +199,7 @@ def ffwd_different_dimensions(in_path, out_path, checkpoint_dir,
         out_path_of_shape[shape].append(out_image)
     for shape in in_path_of_shape:
         print('Processing images of shape %s' % shape)
-        ffwd(in_path_of_shape[shape], out_path_of_shape[shape], 
+        ffwd(in_path_of_shape[shape], out_path_of_shape[shape],
             checkpoint_dir, device_t, batch_size)
 
 def build_parser():
@@ -205,16 +207,15 @@ def build_parser():
     parser.add_argument('--checkpoint', type=str,
                         dest='checkpoint_dir',
                         help='dir or .ckpt file to load checkpoint from',
-                        metavar='CHECKPOINT', required=True)
+                        metavar='CHECKPOINT')
 
     parser.add_argument('--in-path', type=str,
                         dest='in_path',help='dir or file to transform',
-                        metavar='IN_PATH', required=True)
+                        metavar='IN_PATH')
 
     help_out = 'destination (dir or file) of transformed file or files'
     parser.add_argument('--out-path', type=str,
-                        dest='out_path', help=help_out, metavar='OUT_PATH',
-                        required=True)
+                        dest='out_path', help=help_out, metavar='OUT_PATH')
 
     parser.add_argument('--device', type=str,
                         dest='device',help='device to perform compute on',
@@ -225,7 +226,7 @@ def build_parser():
                         metavar='BATCH_SIZE', default=BATCH_SIZE)
 
     parser.add_argument('--allow-different-dimensions', action='store_true',
-                        dest='allow_different_dimensions', 
+                        dest='allow_different_dimensions',
                         help='allow different image dimensions')
 
     return parser
@@ -256,11 +257,42 @@ def main():
         full_in = [os.path.join(opts.in_path,x) for x in files]
         full_out = [os.path.join(opts.out_path,x) for x in files]
         if opts.allow_different_dimensions:
-            ffwd_different_dimensions(full_in, full_out, opts.checkpoint_dir, 
+            ffwd_different_dimensions(full_in, full_out, opts.checkpoint_dir,
                     device_t=opts.device, batch_size=opts.batch_size)
         else :
             ffwd(full_in, full_out, opts.checkpoint_dir, device_t=opts.device,
                     batch_size=opts.batch_size)
+
+def serve(in_path):
+    parser = build_parser()
+    opts = parser.parse_args()
+    opts.in_path = in_path
+    models = list_files('models')
+    opts.checkpoint_dir = os.path.join('models', random.choice(models))
+    file_name = os.path.basename(in_path)
+    opts.out_path = os.path.join(tempfile.gettempdir(), file_name)
+
+    if not os.path.isdir(opts.in_path):
+        if os.path.exists(opts.out_path) and os.path.isdir(opts.out_path):
+            out_path = \
+                    os.path.join(opts.out_path,os.path.basename(opts.in_path))
+        else:
+            out_path = opts.out_path
+
+        ffwd_to_img(opts.in_path, out_path, opts.checkpoint_dir,
+                    device=opts.device)
+    else:
+        files = list_files(opts.in_path)
+        full_in = [os.path.join(opts.in_path,x) for x in files]
+        full_out = [os.path.join(opts.out_path,x) for x in files]
+        if opts.allow_different_dimensions:
+            ffwd_different_dimensions(full_in, full_out, opts.checkpoint_dir,
+                    device_t=opts.device, batch_size=opts.batch_size)
+        else :
+            ffwd(full_in, full_out, opts.checkpoint_dir, device_t=opts.device,
+                    batch_size=opts.batch_size)
+
+    return opts.out_path
 
 if __name__ == '__main__':
     main()
