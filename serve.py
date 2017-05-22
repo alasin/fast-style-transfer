@@ -2,7 +2,7 @@
 import cvfy
 import evaluate
 
-app = cvfy.register("TOKEN")
+app = cvfy.register("nongh::641280:5001::54.158.186.33")
 
 
 @cvfy.crossdomain
